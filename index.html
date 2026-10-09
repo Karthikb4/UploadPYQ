@@ -341,6 +341,34 @@
     border-radius: 50%;
   }
   .done-x:hover { box-shadow: none; color: var(--ink); background: rgba(255,255,255,.06); }
+  .undo { margin-top: 14px; font-size: 14px; color: var(--soft); }
+  .undo button {
+    width: auto;
+    margin: 0;
+    padding: 2px 4px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--brand);
+    background: none;
+    border: 0;
+    box-shadow: none;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .undo button:hover { box-shadow: none; color: var(--ink); }
+  .undo .confirm {
+    width: 100%;
+    margin-top: 10px;
+    padding: 12px;
+    color: #fff;
+    text-decoration: none;
+    background: rgba(255,122,122,.18);
+    border: 1px solid rgba(255,122,122,.5);
+    border-radius: 10px;
+  }
+  .undo .confirm:hover { color: #fff; background: rgba(255,122,122,.3); }
+  .undo .err { color: var(--red); margin-top: 8px; }
+  .undo small { display: block; margin-top: 6px; font-size: 12px; color: var(--soft); }
   .copied { font-size: 13px; color: var(--ok); min-height: 1.2em; margin-top: 6px; }
   @media (prefers-reduced-motion: reduce) { .done-card, .done-icon path { animation: none; stroke-dashoffset: 0; } }
 
@@ -471,6 +499,11 @@
       <button type="button" class="btn-ghost" id="doneShare">Share with a friend who has papers</button>
     </div>
     <div class="copied" id="doneCopied" aria-live="polite"></div>
+    <div class="undo" id="undoBox">
+      <span id="undoAsk">Picked the wrong subject or exam? <button type="button" id="undoLink">Undo this upload</button><br><small>Later on, just send the organiser the line above.</small></span>
+      <button type="button" class="confirm" id="undoConfirm" hidden>Yes, remove these files so I can fix it</button>
+      <div class="err" id="undoErr" aria-live="polite"></div>
+    </div>
   </div>
 </div>
 
@@ -495,8 +528,8 @@
   const API_READY = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(API_URL);
 
   function runDirect(action, body) {
-    const fn = { subjects: 'getSubjects', upload: 'uploadFile', check: 'checkDuplicates' }[action];
-    const arg = action === 'subjects' ? body.sem : action === 'check' ? body.hashes : body;
+    const fn = { subjects: 'getSubjects', upload: 'uploadFile', undo: 'undoUpload' }[action];
+    const arg = action === 'subjects' ? body.sem : action === 'undo' ? body.folderId : body;
     return new Promise((res, rej) =>
       google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](arg));
   }
@@ -581,6 +614,13 @@
     const digits = e.target.value.replace(/\D/g, '');
     if (digits !== e.target.value) e.target.value = digits;
   }));
+  // Clear the red outline (and its error message) as soon as the field is fixed
+  ['sem', 'year', 'subject'].forEach(id => $(id).addEventListener('input', () => {
+    if (!$(id).classList.contains('bad')) return;
+    $(id).classList.remove('bad');
+    if ($('status').className === 'err') show('');
+  }));
+  $('exam').addEventListener('change', () => { if ($('status').className === 'err') show(''); });
 
   // Picking files again ADDS to the selection; each tile has a x to remove it
   const urls = new Map();                         // file -> preview URL
@@ -689,6 +729,48 @@
       await navigator.clipboard.writeText(text + ' ' + SHARE_URL);
       $('doneCopied').textContent = 'Link copied. Paste it in WhatsApp!';
     } catch (e) { /* share sheet closed */ }
+  });
+
+  // ---- Undo the last upload (wrong subject or exam) ----
+  let lastUpload = null;   // { sem, year, subject, exam, files, folderId, n }
+  function resetUndo() {
+    $('undoBox').style.display = lastUpload && lastUpload.folderId ? '' : 'none';
+    $('undoAsk').hidden = false;
+    $('undoConfirm').hidden = true;
+    $('undoConfirm').disabled = false;
+    $('undoConfirm').textContent = lastUpload && lastUpload.n === 1
+      ? 'Yes, remove this file so I can fix it'
+      : 'Yes, remove these files so I can fix it';
+    $('undoErr').textContent = '';
+  }
+  $('undoLink').addEventListener('click', () => {
+    $('undoAsk').hidden = true;
+    $('undoConfirm').hidden = false;
+    $('undoConfirm').focus();
+  });
+  $('undoConfirm').addEventListener('click', async () => {
+    if (!lastUpload) return;
+    $('undoConfirm').disabled = true;
+    $('undoConfirm').textContent = 'Removing...';
+    $('undoErr').textContent = '';
+    try {
+      await api('undo', { folderId: lastUpload.folderId });
+      const u = lastUpload;
+      lastUpload = null;
+      closeDone();
+      // Put everything back so they only fix what was wrong
+      $('sem').value = u.sem; $('year').value = u.year; $('subject').value = u.subject;
+      $('exam').value = u.exam; syncExam();
+      picked = u.files.slice(); session = null;
+      renderThumbs();
+      loadedSem = ''; loadSubjects();
+      show('Upload removed. Fix the subject or exam above, then tap Upload again.', 'ok');
+      $('subject').focus();
+    } catch (e) {
+      $('undoConfirm').disabled = false;
+      $('undoConfirm').textContent = 'Try again';
+      $('undoErr').textContent = (e && e.message) || 'Could not undo. Check your internet and try again.';
+    }
   });
 
   // Clear the form for the next upload
@@ -852,9 +934,11 @@
       progress(picked.length, picked.length);
       const nDone = picked.filter(f => session.done.has(f)).length, nSkip = 0;
       const r = session.result;
-      const where = r ? 'Sem ' + sem + ' › ' + r.subject + (r.exam ? ' › ' + r.exam.replace(/^\d+\.\s*/, '') : '') : '';
+      const where = r ? 'Sem ' + sem + ' › ' + r.subject + (r.exam ? ' › ' + r.exam.replace(/^\d+\.\s*/, '') : '') + (r.contribution ? ' › ' + r.contribution : '') : '';
       await wait(400);                                 // let the last ✓ show
+      lastUpload = { sem, year, subject, exam, files: picked.slice(), folderId: session.folderId, n: nDone };
       clearForm();
+      resetUndo();
       openDone({ nDone, nSkip, where });
     } catch (e) {
       const msg = String((e && e.message) || e || '');
