@@ -198,6 +198,21 @@
     overflow: hidden;
   }
   .thumb.img { cursor: zoom-in; }
+  .thumb .rm {
+    position: absolute;
+    top: 4px; right: 4px;
+    z-index: 2;
+    width: 26px; height: 26px;
+    margin: 0; padding: 0;
+    font-size: 16px; font-weight: 700; line-height: 26px;
+    color: #fff;
+    background: rgba(10,12,24,.75);
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 50%;
+    box-shadow: none;
+  }
+  .thumb .rm:hover { box-shadow: none; background: var(--red); }
+  .thumb.done .rm, .uploading .thumb .rm { display: none; }
   .thumb.dup::after {
     content: "Already shared";
     position: absolute;
@@ -512,7 +527,7 @@
   function resetSession() {
     session = null;
     $('go').textContent = GO_LABEL;
-    [...$('thumbs').children].forEach(t => t.classList.remove('done', 'dup'));
+    renderThumbs();
   }
 
   function show(msg, cls) { $('status').textContent = msg; $('status').className = cls || ''; }
@@ -567,34 +582,63 @@
     if (digits !== e.target.value) e.target.value = digits;
   }));
 
-  function setFiles(list) {
-    picked = [...list];
-    resetSession();
+  // Picking files again ADDS to the selection; each tile has a x to remove it
+  const urls = new Map();                         // file -> preview URL
+  const sameFile = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+
+  function addFiles(list) {
+    [...list].forEach(f => { if (!picked.some(p => sameFile(p, f))) picked.push(f); });
+    renderThumbs();
+  }
+  function removeFile(f) {
+    picked = picked.filter(p => p !== f);
+    if (urls.has(f)) { URL.revokeObjectURL(urls.get(f)); urls.delete(f); }
+    renderThumbs();
+  }
+  function leftCount() { return picked.filter(f => !(session && session.done.has(f))).length; }
+
+  function renderThumbs() {
     const box = $('thumbs');
     box.innerHTML = '';
     picked.forEach(f => {
       const d = document.createElement('div');
       d.className = 'thumb';
+      d.title = f.name;
       if (f.type.startsWith('image/')) {
-        const url = URL.createObjectURL(f);
+        if (!urls.has(f)) urls.set(f, URL.createObjectURL(f));
+        const url = urls.get(f);
         d.style.backgroundImage = 'url(' + url + ')';
         d.classList.add('img');
         d.tabIndex = 0;
         d.setAttribute('role', 'button');
         d.setAttribute('aria-label', 'Preview ' + f.name);
         d.addEventListener('click', () => openViewer(url, f.name));
-        d.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openViewer(url, f.name); } });
+        d.addEventListener('keydown', e => { if (e.target === d && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openViewer(url, f.name); } });
       } else {
         d.textContent = (f.name.split('.').pop() || 'FILE').slice(0, 4).toUpperCase();
       }
-      d.title = f.name;
+      if (session && session.done.has(f)) d.classList.add('done');
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'rm';
+      rm.textContent = '×';
+      rm.setAttribute('aria-label', 'Remove ' + f.name);
+      rm.addEventListener('click', e => { e.stopPropagation(); removeFile(f); });
+      d.appendChild(rm);
       box.appendChild(d);
     });
     $('dropText').textContent = picked.length
-      ? picked.length + ' file(s) ready. Tap to change.'
+      ? picked.length + (picked.length === 1 ? ' file' : ' files') + ' selected. Tap to add more.'
       : 'Tap to pick papers from your gallery';
+    // After a failed try, keep the Retry label in sync with what's left
+    if (session && session.done.size) {
+      const left = leftCount();
+      $('go').textContent = left ? 'Retry remaining ' + left + ' file(s)' : GO_LABEL;
+    }
   }
-  $('files').addEventListener('change', e => setFiles(e.target.files));
+
+  // Clear the picker so choosing the same photo again still works
+  $('files').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
 
   // ---- "Done" popup ----
   const CHEERS = [
@@ -651,10 +695,10 @@
   function clearForm() {
     ['sem', 'year', 'subject'].forEach(id => { $(id).value = ''; $(id).classList.remove('bad'); });
     $('exam').selectedIndex = 0; syncExam();
+    urls.forEach(u => URL.revokeObjectURL(u)); urls.clear();
     picked = []; session = null;
     $('files').value = '';
-    $('thumbs').innerHTML = '';
-    $('dropText').textContent = 'Tap to pick papers from your gallery';
+    renderThumbs();
     $('go').textContent = GO_LABEL;
     progress(0, 0);
     show('');
@@ -690,7 +734,7 @@
   const drop = $('drop');
   ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-  drop.addEventListener('drop', e => setFiles(e.dataTransfer.files));
+  drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
 
   function readAsBase64(file) {
     return new Promise((res, rej) => {
@@ -783,33 +827,30 @@
     const subject = $('subject').value.trim();
     const year = $('year').value.trim();
     const exam = $('exam').value;
-    const thumbs = $('thumbs').children;
 
     // Semester, subject or exam changed since the failed try? Start over as a new contribution.
     if (session && (session.sem !== sem || session.exam !== exam || session.subject.toLowerCase() !== subject.toLowerCase())) resetSession();
-    if (!session) session = { sem, subject, exam, folderId: '', done: new Set(), skipped: new Set(), hashes: null, result: null };
+    if (!session) session = { sem, subject, exam, folderId: '', done: new Set(), result: null };
 
     $('go').disabled = true;
+    $('thumbs').classList.add('uploading');
     try {
-      const toSend = picked.length - session.skipped.size;
-      for (let i = 0; i < picked.length; i++) {
-        if (session.done.has(i) || session.skipped.has(i)) continue;
-        show('Uploading ' + (session.done.size + 1) + ' of ' + toSend + '... keep this page open 🙏');
-        progress(session.done.size + session.skipped.size, picked.length);
-        const p = await fileToPayload(picked[i]);
+      const queue = picked.filter(f => !session.done.has(f));
+      const total = queue.length, before = picked.length - total;
+      for (let i = 0; i < queue.length; i++) {
+        const f = queue[i];
+        show('Uploading ' + (i + 1) + ' of ' + total + '... keep this page open 🙏');
+        progress(before + i, picked.length);
+        const p = await fileToPayload(f);
         const r = await send(Object.assign(p, { sem, subject, year, exam, folderId: session.folderId }));
-        if (r.duplicate) {                             // someone else just uploaded the same file
-          session.skipped.add(i);
-          thumbs[i] && thumbs[i].classList.add('dup');
-          continue;
-        }
         session.folderId = r.folderId;
         session.result = r;
-        session.done.add(i);
-        thumbs[i] && thumbs[i].classList.add('done');
+        session.done.add(f);
+        const tile = $('thumbs').children[picked.indexOf(f)];
+        tile && tile.classList.add('done');
       }
       progress(picked.length, picked.length);
-      const nDone = session.done.size, nSkip = session.skipped.size;
+      const nDone = picked.filter(f => session.done.has(f)).length, nSkip = 0;
       const r = session.result;
       const where = r ? 'Sem ' + sem + ' › ' + r.subject + (r.exam ? ' › ' + r.exam.replace(/^\d+\.\s*/, '') : '') : '';
       await wait(400);                                 // let the last ✓ show
@@ -817,19 +858,21 @@
       openDone({ nDone, nSkip, where });
     } catch (e) {
       const msg = String((e && e.message) || e || '');
-      const left = picked.length - session.done.size - session.skipped.size;
+      const left = leftCount();
+      const sent = picked.length - left;
       if (!isNetwork(e)) {
         // Show the real reason, so it can be fixed
         show('Upload failed: ' + msg, 'err');
         $('go').textContent = 'Try again';
       } else {
-        show((session.done.size ? session.done.size + ' of ' + (picked.length - session.skipped.size) + ' uploaded. ' : '')
+        show((sent ? sent + ' of ' + picked.length + ' uploaded. ' : '')
           + 'Connection problem. Check your internet and tap Retry to send the remaining '
           + left + ' file(s). They will go into the same folder.', 'err');
         $('go').textContent = 'Retry remaining ' + left + ' file(s)';
       }
     } finally {
       $('go').disabled = false;
+      $('thumbs').classList.remove('uploading');
     }
   });
 </script>
