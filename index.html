@@ -836,6 +836,7 @@
     $('undoErr').textContent = '';
     try {
       await api('undo', { folderId: lastUpload.folderId });
+      forgetUpload(lastUpload.folderId);
       const u = lastUpload;
       lastUpload = null;
       closeDone();
@@ -865,11 +866,17 @@
     } catch (e) {}
     return [];
   }
-  function saveRef(ref) {
+  function saveRef(ref, id) {
     try {
       const list = loadHistory();
-      list.unshift({ ref, at: Date.now() });
+      list.unshift({ ref, id, at: Date.now() });
       localStorage.setItem(HIST_KEY, JSON.stringify(list.slice(0, 50)));
+    } catch (e) {}
+  }
+  // Undone uploads no longer exist, so drop them from this phone's list
+  function forgetUpload(id) {
+    try {
+      localStorage.setItem(HIST_KEY, JSON.stringify(loadHistory().filter(u => u.id !== id)));
     } catch (e) {}
   }
   function niceTime(ms) {
@@ -1122,7 +1129,7 @@
       const where = r ? 'Sem ' + sem + ' › ' + r.subject + (r.exam ? ' › ' + r.exam.replace(/^\d+\.\s*/, '') : '') + (r.contribution ? ' › ' + r.contribution : '') : '';
       await wait(400);                                 // let the last ✓ show
       lastUpload = { sem, year, subject, exam, files: picked.slice(), folderId: session.folderId, n: nDone };
-      if (where) saveRef(where);
+      if (where) saveRef(where, session.folderId);
       clearForm();
       resetUndo();
       openDone({ nDone, nSkip, where });
