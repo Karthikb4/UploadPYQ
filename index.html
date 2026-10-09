@@ -318,6 +318,22 @@
     border: 1px solid var(--line);
     border-radius: 999px;
   }
+  .where-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 10px; }
+  .where-row .done-where { margin: 0; }
+  .copy-btn {
+    width: auto;
+    margin: 0;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    background: rgba(124,139,255,.14);
+    border: 1px solid rgba(124,139,255,.35);
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  .copy-btn:hover { box-shadow: none; background: rgba(124,139,255,.25); }
   .done-card p { margin: 0 0 6px; color: var(--soft); font-size: 15px; }
   .done-card .cheer { color: var(--ink); margin-top: 8px; }
   .done-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
@@ -369,6 +385,39 @@
   .undo .confirm:hover { color: #fff; background: rgba(255,122,122,.3); }
   .undo .err { color: var(--red); margin-top: 8px; }
   .undo small { display: block; margin-top: 6px; font-size: 12px; color: var(--soft); }
+  .foot .link {
+    width: auto;
+    margin: 10px 0 0;
+    padding: 4px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--brand);
+    background: none;
+    border: 0;
+    box-shadow: none;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .foot .link:hover { box-shadow: none; color: var(--ink); }
+  .report-card { text-align: left; }
+  .report-card h2 { text-align: center; }
+  .report-card > p { text-align: center; }
+  .report-card .done-icon, .report-card .cheer { text-align: center; }
+  .report-card #reportDone { text-align: center; }
+  .report-card textarea {
+    width: 100%;
+    font: inherit;
+    color: var(--ink);
+    padding: 12px 14px;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    background: var(--field);
+    resize: vertical;
+  }
+  .report-card textarea::placeholder { color: #6A7398; }
+  .report-card textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(124,139,255,.25); }
+  .report-card #reportSend, .report-card #reportClose { margin-top: 16px; }
   .copied { font-size: 13px; color: var(--ok); min-height: 1.2em; margin-top: 6px; }
   @media (prefers-reduced-motion: reduce) { .done-card, .done-icon path { animation: none; stroke-dashoffset: 0; } }
 
@@ -491,7 +540,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="#5BE39A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
     </div>
     <h2 id="doneTitle">Thank you!</h2>
-    <div class="done-where" id="doneWhere"></div>
+    <div class="where-row" id="whereRow">
+      <div class="done-where" id="doneWhere"></div>
+      <button type="button" class="copy-btn" id="copyRef" aria-label="Copy upload path">Copy</button>
+    </div>
     <p id="doneText"></p>
     <p class="cheer" id="doneCheer"></p>
     <div class="done-actions">
@@ -500,7 +552,7 @@
     </div>
     <div class="copied" id="doneCopied" aria-live="polite"></div>
     <div class="undo" id="undoBox">
-      <span id="undoAsk">Picked the wrong subject or exam? <button type="button" id="undoLink">Undo this upload</button><br><small>Later on, just send the organiser the line above.</small></span>
+      <span id="undoAsk">Picked the wrong subject or exam? <button type="button" id="undoLink">Undo this upload</button><br><small>Noticed later? Use "Report a mistake" at the bottom of the page.</small></span>
       <button type="button" class="confirm" id="undoConfirm" hidden>Yes, remove these files so I can fix it</button>
       <div class="err" id="undoErr" aria-live="polite"></div>
     </div>
@@ -513,7 +565,35 @@
   <img id="viewerImg" alt="">
 </div>
 
-<p class="foot">Thank you for helping out. It really means a lot to your juniors. 💙</p>
+<p class="foot">Thank you for helping out. It really means a lot to your juniors. 💙<br>
+  <button type="button" class="link" id="reportOpen">Uploaded something to the wrong place? Report a mistake</button></p>
+
+<div class="done-pop" id="reportPop" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+  <div class="done-card report-card">
+    <button type="button" class="done-x" id="reportX" aria-label="Close">×</button>
+    <h2 id="reportTitle">Report a mistake</h2>
+    <p>Anonymous. No name or number needed. The organiser will fix it.</p>
+    <div id="reportForm">
+      <div id="pickWrap">
+        <label for="reportPick">Which upload?</label>
+        <select id="reportPick"></select>
+      </div>
+      <div id="refWrap">
+        <label for="reportRef">Your upload <span class="opt">(if you know it)</span></label>
+        <input type="text" id="reportRef" placeholder="e.g. DBMS endsem, Saturday night, 3 photos" autocomplete="off">
+      </div>
+      <label for="reportMsg">What should be changed?</label>
+      <textarea id="reportMsg" rows="3" placeholder="e.g. Should be Quiz 1, not Endsem. Or: uploaded a wrong photo, please remove it."></textarea>
+      <button type="button" id="reportSend">Send to organiser</button>
+      <div class="undo"><div class="err" id="reportErr" aria-live="polite"></div></div>
+    </div>
+    <div id="reportDone" hidden>
+      <div class="done-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#5BE39A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <p class="cheer">Thanks! The organiser will sort it out.</p>
+      <button type="button" id="reportClose">Close</button>
+    </div>
+  </div>
+</div>
 
 <script>
   // Paste your Web app link (the one ending in /exec) between the quotes
@@ -528,7 +608,7 @@
   const API_READY = /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(API_URL);
 
   function runDirect(action, body) {
-    const fn = { subjects: 'getSubjects', upload: 'uploadFile', undo: 'undoUpload' }[action];
+    const fn = { subjects: 'getSubjects', upload: 'uploadFile', undo: 'undoUpload', report: 'reportMistake' }[action];
     const arg = action === 'subjects' ? body.sem : action === 'undo' ? body.folderId : body;
     return new Promise((res, rej) =>
       google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](arg));
@@ -695,7 +775,8 @@
       : '<svg viewBox="0 0 24 24" fill="none" stroke="#5BE39A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
     $('doneTitle').textContent = allDup ? 'Already in the collection' : 'Thank you! 🎉';
     $('doneWhere').textContent = where || '';
-    $('doneWhere').style.display = where && !allDup ? '' : 'none';
+    $('whereRow').style.display = where && !allDup ? '' : 'none';
+    $('copyRef').textContent = 'Copy';
     $('doneText').textContent = allDup
       ? 'Someone has already shared ' + (nSkip === 1 ? 'this file' : 'these ' + nSkip + ' files') + '. Got any other papers?'
       : nDone + (nDone === 1 ? ' file' : ' files') + ' saved.' + (nSkip ? ' ' + nSkip + ' already shared, so skipped.' : '');
@@ -771,6 +852,110 @@
       $('undoConfirm').textContent = 'Try again';
       $('undoErr').textContent = (e && e.message) || 'Could not undo. Check your internet and try again.';
     }
+  });
+
+  // ---- Report a mistake (anonymous) ----
+  // Remember the last upload's reference on this phone, so it can be filled in later
+  // Every upload from this phone is remembered here (only in this browser, never sent anywhere)
+  const HIST_KEY = 'pyq-my-uploads';
+  function loadHistory() {
+    try {
+      const list = JSON.parse(localStorage.getItem(HIST_KEY) || '[]');
+      if (Array.isArray(list)) return list;
+    } catch (e) {}
+    return [];
+  }
+  function saveRef(ref) {
+    try {
+      const list = loadHistory();
+      list.unshift({ ref, at: Date.now() });
+      localStorage.setItem(HIST_KEY, JSON.stringify(list.slice(0, 50)));
+    } catch (e) {}
+  }
+  function niceTime(ms) {
+    try {
+      return new Date(ms).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    } catch (e) { return ''; }
+  }
+
+  function syncRefBox() {
+    const other = !$('reportPick').value;
+    $('refWrap').hidden = !other;
+    if (other) $('reportRef').focus();
+  }
+  $('reportPick').addEventListener('change', syncRefBox);
+
+  function openReport() {
+    closeDone();
+    const list = loadHistory();
+    const pick = $('reportPick');
+    pick.innerHTML = '';
+    list.forEach(u => {
+      const o = document.createElement('option');
+      o.value = u.ref;
+      o.textContent = u.ref + '  ·  ' + niceTime(u.at);
+      pick.appendChild(o);
+    });
+    const other = document.createElement('option');
+    other.value = '';
+    other.textContent = list.length ? 'Something else (I\'ll describe it)' : '';
+    pick.appendChild(other);
+    $('pickWrap').hidden = !list.length;
+    $('refWrap').hidden = !!list.length;
+    $('reportRef').value = '';
+    $('reportMsg').value = '';
+    $('reportErr').textContent = '';
+    $('reportForm').hidden = false;
+    $('reportDone').hidden = true;
+    $('reportSend').disabled = false;
+    $('reportSend').textContent = 'Send to organiser';
+    $('reportPop').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    (list.length ? pick : $('reportMsg')).focus();
+  }
+  function closeReport() {
+    if (!$('reportPop').classList.contains('open')) return;
+    $('reportPop').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  $('reportOpen').addEventListener('click', openReport);
+  $('reportX').addEventListener('click', closeReport);
+  $('reportClose').addEventListener('click', closeReport);
+  $('reportPop').addEventListener('click', e => { if (e.target === $('reportPop')) closeReport(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeReport(); });
+  $('reportSend').addEventListener('click', async () => {
+    const message = $('reportMsg').value.trim();
+    if (!message) { $('reportErr').textContent = 'Please write what should be changed.'; $('reportMsg').focus(); return; }
+    $('reportSend').disabled = true;
+    $('reportSend').textContent = 'Sending...';
+    $('reportErr').textContent = '';
+    try {
+      const ref = $('reportPick').value || $('reportRef').value.trim();
+      await api('report', { ref, message });
+      $('reportForm').hidden = true;
+      $('reportDone').hidden = false;
+      $('reportClose').focus();
+    } catch (e) {
+      $('reportSend').disabled = false;
+      $('reportSend').textContent = 'Try again';
+      $('reportErr').textContent = (e && e.message) || 'Could not send. Check your internet and try again.';
+    }
+  });
+
+  // Copy the upload path from the "Thank you" popup
+  $('copyRef').addEventListener('click', async () => {
+    const text = $('doneWhere').textContent;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+    if (!ok) {
+      // Older browsers: select the text so they can copy it themselves
+      try {
+        const r = document.createRange(); r.selectNodeContents($('doneWhere'));
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        ok = document.execCommand('copy');
+      } catch (e) {}
+    }
+    $('copyRef').textContent = ok ? 'Copied ✓' : 'Select & copy';
   });
 
   // Clear the form for the next upload
@@ -937,6 +1122,7 @@
       const where = r ? 'Sem ' + sem + ' › ' + r.subject + (r.exam ? ' › ' + r.exam.replace(/^\d+\.\s*/, '') : '') + (r.contribution ? ' › ' + r.contribution : '') : '';
       await wait(400);                                 // let the last ✓ show
       lastUpload = { sem, year, subject, exam, files: picked.slice(), folderId: session.folderId, n: nDone };
+      if (where) saveRef(where);
       clearForm();
       resetUndo();
       openDone({ nDone, nSkip, where });
